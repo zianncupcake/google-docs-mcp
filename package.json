@@ -1,0 +1,16 @@
+{
+  "name": "google-docs-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "google-docs-mcp": "./index.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "googleapis": "^144.0.0"
+  },
+  "scripts": {
+    "auth": "node authorize.mjs"
+  }
+}
