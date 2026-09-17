@@ -67,12 +67,42 @@ Then ask Claude to read any Google Doc URL; `read_doc` returns its text.
 
 | tool | use |
 |---|---|
-| `read_doc` | text + per-run character indices (the edit tools need these) |
+| `read_doc` | text + per-run character indices + protected ranges |
 | `replace_all_text` | safest edit; no index arithmetic |
 | `insert_text` / `delete_range` | surgical, index-based |
+| `replace_range` | swap the text between two indices in one atomic call |
 | `append_text` | resolves the end index for you |
 | `replace_body` | swap the whole body via Drive upload, **keeps the URL** |
 | `create_doc` | new doc, optionally from HTML |
+
+## Protecting your own writing
+
+Every mutating tool refuses to touch text you marked in the document. **Italicise it** and
+the edit tools will work around it. Nothing is stored outside the doc — the marker is the
+formatting, so it survives sharing, copying and editing by hand.
+
+Two guarantees, and neither can be bypassed by accident:
+
+- **Read before write.** `revisionId` is required on `replace_all_text`, `insert_text`,
+  `delete_range`, `replace_range` and `replace_body`. The server re-fetches the document
+  itself before every write, refuses if the live revision differs from the one you passed,
+  and computes the protected ranges from that same fetch — so the check can never run
+  against a stale copy.
+- **Protected ranges are off limits.** `insert_text` refuses an index strictly inside one
+  (inserting at either edge is fine); `delete_range` and `replace_range` refuse a range
+  that overlaps one; `replace_all_text` refuses the whole call if any occurrence of `find`
+  lands in one, because the Docs API replaces every occurrence atomically and cannot skip
+  some; `replace_body` refuses if the doc contains any protected text at all.
+  `append_text` is always allowed — it only adds at the end — but it strips the marker off
+  the text it inserts, which would otherwise be inherited from the run above it.
+  `create_doc` is unaffected.
+
+Each mutating tool takes an optional `allowProtected: true` that skips the protection
+check **only** — the `revisionId` check still applies. It is for when you have explicitly
+asked for your own marked text to be overwritten.
+
+`read_doc` lists the ranges under a `--- PROTECTED ---` section (pass
+`withProtected: false` to omit it).
 
 ## Configuration
 
@@ -81,10 +111,13 @@ Then ask Claude to read any Google Doc URL; `read_doc` returns its text.
 | `GOOGLE_OAUTH_CREDENTIALS` | `~/.config/google-docs-mcp/credentials.json` |
 | `GOOGLE_DOCS_MCP_TOKEN` | `~/.config/google-docs-mcp/token.json` |
 | `GOOGLE_DOCS_MCP_SCOPES` | `…/auth/documents …/auth/drive.file` (space separated) |
+| `GOOGLE_DOCS_MCP_PROTECT` | `italic` — what counts as a protection marker. Also `highlight` (any non-white background colour), `both`, or `off` to disable protection entirely. An unrecognised value falls back to `italic`. |
 
 ## Gotchas
 
-- **Indices shift after every edit.** Re-read between edits, or batch into one call.
+- **Indices shift after every edit.** Re-read between edits. To rewrite a region, use
+  `replace_range` rather than `delete_range` + `insert_text` — it is one atomic call, so
+  nothing shifts in between.
 - `replace_body` needs the `drive.file` scope, which only covers files this app
   created. To rewrite a doc created elsewhere, add `https://www.googleapis.com/auth/drive`
   to `GOOGLE_DOCS_MCP_SCOPES` and re-run `npm run auth` — that grants full Drive access.
