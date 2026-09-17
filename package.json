@@ -11,6 +11,7 @@
     "googleapis": "^144.0.0"
   },
   "scripts": {
-    "auth": "node authorize.mjs"
+    "auth": "node authorize.mjs",
+    "test": "node --test"
   }
 }

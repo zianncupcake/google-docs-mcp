@@ -113,6 +113,14 @@ asked for your own marked text to be overwritten.
 | `GOOGLE_DOCS_MCP_SCOPES` | `…/auth/documents …/auth/drive.file` (space separated) |
 | `GOOGLE_DOCS_MCP_PROTECT` | `italic` — what counts as a protection marker. Also `highlight` (any non-white background colour), `both`, or `off` to disable protection entirely. An unrecognised value falls back to `italic`. |
 
+## Tests
+
+```bash
+npm test
+```
+
+Runs the protection rules against hand-built documents. No credentials, no network.
+
 ## Gotchas
 
 - **Indices shift after every edit.** Re-read between edits. To rewrite a region, use
