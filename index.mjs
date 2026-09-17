@@ -5,6 +5,10 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { google } from 'googleapis'
 import { getAuth } from './auth.mjs'
 import { protectMode, protectedRanges, overlapping, strictlyInside, textAt, findOccurrences } from './protect.mjs'
+import {
+  docRuns, docText, paragraphs, diffParagraphs, describeDrift, hasDrift,
+  baselineEnabled, loadSnapshot, saveSnapshot,
+} from './baseline.mjs'
 
 let _docs, _drive
 async function apis() {
@@ -22,17 +26,6 @@ function docId(input) {
   return m ? m[1] : String(input).trim()
 }
 
-function flatten(doc) {
-  const runs = []
-  for (const el of doc.body?.content ?? []) {
-    for (const pe of el.paragraph?.elements ?? []) {
-      const t = pe.textRun?.content
-      if (t) runs.push({ start: pe.startIndex, end: pe.endIndex, text: t })
-    }
-  }
-  return runs
-}
-
 const REV = 'From read_doc. Required: the edit is refused if the document changed since.'
 const ALLOW = 'Skip the protected-text check. Only pass true when the user has explicitly asked to overwrite their own marked text. The revisionId check still applies.'
 
@@ -42,7 +35,8 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['documentId'],
       properties: { documentId: { type: 'string', description: 'Doc id or full Docs URL' },
                     withIndices: { type: 'boolean', description: 'Also return the per-run index map (default true)' },
-                    withProtected: { type: 'boolean', description: 'Also return the protected ranges (default true)' } } } },
+                    withProtected: { type: 'boolean', description: 'Also return the protected ranges (default true)' },
+                    withBaseline: { type: 'boolean', description: 'Also report whether the document has changed since this server last wrote it (default true)' } } } },
   { name: 'replace_all_text',
     description: 'Replace every occurrence of a string throughout the document. The safest edit — no index arithmetic. Refused if any occurrence sits in protected text, because the API replaces all of them at once.',
     inputSchema: { type: 'object', required: ['documentId', 'find', 'replace', 'revisionId'],
@@ -86,6 +80,11 @@ const TOOLS = [
     description: 'Create a new Google Doc, optionally from HTML. Returns its id and URL.',
     inputSchema: { type: 'object', required: ['title'],
       properties: { title: { type: 'string' }, html: { type: 'string' }, folderId: { type: 'string' } } } },
+  { name: 'sync_baseline',
+    description: 'Adopt the document\'s current text as the baseline this server compares future writes against, and report what changed since the last baseline. Writes NOTHING to the document. This is the ONLY way to clear a drift refusal — no edit tool has a flag to bypass one, deliberately: drift means the user changed the doc after this server last wrote it, so it must be read and understood, not overridden. Call read_doc first, then this.',
+    inputSchema: { type: 'object', required: ['documentId'],
+      properties: { documentId: { type: 'string', description: 'Doc id or full Docs URL' } } },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
 ]
 
 const server = new Server({ name: 'google-docs-mcp', version: '1.0.0' }, { capabilities: { tools: {} } })
@@ -108,9 +107,26 @@ async function batch(documentId, requests, revisionId) {
   }
 }
 
+const REMEDY = 'The document changed since I last wrote it, so that change was almost certainly yours. '
+  + 'Re-sending the same edit would overwrite it. Call read_doc to see the current text and work out what to keep, '
+  + 'then sync_baseline to adopt it — do NOT re-send this edit. There is no flag to skip this check.'
+
+// The drift gate. revisionId proves nothing here: after the user edits, THEIR version is
+// the current revision, so a fresh read hands back a revisionId that validates perfectly
+// while the text underneath it is no longer what this server wrote.
+async function checkDrift(tool, id, doc) {
+  if (!baselineEnabled()) return
+  const snap = await loadSnapshot(id)
+  // No snapshot is the bootstrap case: nothing to compare against yet, and the write that
+  // follows records one.
+  if (!snap) return
+  const diff = diffParagraphs(paragraphs(snap.text), paragraphs(docText(doc)))
+  if (hasDrift(diff)) throw new Error(`${tool} refused: ${describeDrift(diff)}\n\n${REMEDY}`)
+}
+
 // Read before write, once: the same fetch that proves the caller holds the current
-// revision also supplies the protected ranges, so the protection check can never be
-// made against a copy of the document that has since moved on.
+// revision also supplies the protected ranges and the text the baseline diffs, so neither
+// check can be made against a copy of the document that has since moved on.
 async function preflight(tool, documentId, revisionId, allowProtected) {
   const { docs } = await apis()
   const id = docId(documentId)
@@ -121,9 +137,35 @@ async function preflight(tool, documentId, revisionId, allowProtected) {
   if (data.revisionId !== revisionId) {
     throw new Error(`${tool} refused: the document changed since you read it (you passed ${revisionId}, it is now ${data.revisionId}). Call read_doc again and redo the edit against the current text.`)
   }
+  await checkDrift(tool, id, data)
   const mode = protectMode()
-  // allowProtected drops the protection check only — the revision check above still ran.
+  // allowProtected drops the protection check only — the revision and drift checks above
+  // both still ran, and nothing can switch those off.
   return { id, doc: data, mode, ranges: allowProtected ? [] : protectedRanges(data, mode) }
+}
+
+// Every mutating handler returns through here, so none can forget to move the baseline
+// forward — a write this server made itself must not look like the user's edit next time.
+async function recordBaseline(id, result) {
+  if (!baselineEnabled()) return result
+  try {
+    const { docs } = await apis()
+    const { data } = await docs.documents.get({ documentId: id })
+    await saveSnapshot(id, { revisionId: data.revisionId, text: docText(data) })
+    return result
+  } catch (e) {
+    // The edit already landed. Failing the call now would invite a retry that applies it
+    // twice, so the snapshot failure is reported alongside the success instead.
+    return `${result}\n\nWarning: the baseline snapshot was not updated (${e.message}). The next edit may be refused for drift; call sync_baseline to recover.`
+  }
+}
+
+async function baselineStatus(id, doc) {
+  if (!baselineEnabled()) return 'disabled (GOOGLE_DOCS_MCP_BASELINE=off)'
+  const snap = await loadSnapshot(id)
+  if (!snap) return 'no baseline recorded'
+  const diff = diffParagraphs(paragraphs(snap.text), paragraphs(docText(doc)))
+  return hasDrift(diff) ? describeDrift(diff) : 'in sync'
 }
 
 function quote(doc, [s, e]) {
@@ -137,11 +179,11 @@ function refuse(tool, what, doc, range, mode, extra = '') {
 }
 
 const handlers = {
-  async read_doc({ documentId, withIndices = true, withProtected = true }) {
+  async read_doc({ documentId, withIndices = true, withProtected = true, withBaseline = true }) {
     const { docs } = await apis()
     const id = docId(documentId)
     const { data } = await docs.documents.get({ documentId: id })
-    const runs = flatten(data)
+    const runs = docRuns(data)
     const text = runs.map(r => r.text).join('')
     let out = `title: ${data.title}\nid: ${id}\nrevisionId: ${data.revisionId}\nendIndex: ${runs.at(-1)?.end ?? 1}\n`
       + `\nPass this revisionId to any edit tool; the edit is refused if the document changed since.\n`
@@ -151,6 +193,9 @@ const handlers = {
       out += `\n--- PROTECTED ---\n` + (ranges.length
         ? ranges.map(r => `[${r[0]}-${r[1]}] ${quote(data, r)}`).join('\n')
         : '(none)') + '\n'
+    }
+    if (withBaseline) {
+      out += `\n--- BASELINE ---\n${await baselineStatus(id, data)}\n`
     }
     out += `\n--- TEXT ---\n${text}`
     if (withIndices) {
@@ -173,8 +218,8 @@ const handlers = {
       { replaceAllText: { containsText: { text: find, matchCase }, replaceText: replace } },
     ], revisionId)
     const n = d.replies?.[0]?.replaceAllText?.occurrencesChanged ?? 0
-    return `Replaced ${n} occurrence(s) of ${JSON.stringify(find)}.` +
-      (n === 0 ? ' Nothing matched — check exact casing and whitespace.' : '')
+    return recordBaseline(id, `Replaced ${n} occurrence(s) of ${JSON.stringify(find)}.` +
+      (n === 0 ? ' Nothing matched — check exact casing and whitespace.' : ''))
   },
 
   async insert_text({ documentId, revisionId, index, text, allowProtected = false }) {
@@ -183,13 +228,16 @@ const handlers = {
     if (hit) throw refuse('insert_text', `the index ${index} falls inside`, doc, hit, mode,
       ` Inserting at ${hit[0]} or ${hit[1]} instead would leave it intact.`)
     await batch(id, [{ insertText: { location: { index }, text } }], revisionId)
-    return `Inserted ${text.length} chars at index ${index}.`
+    return recordBaseline(id, `Inserted ${text.length} chars at index ${index}.`)
   },
 
   async append_text({ documentId, text, allowProtected = false }) {
     const { docs } = await apis()
     const id = docId(documentId)
     const { data } = await docs.documents.get({ documentId: id })
+    // append_text takes no revisionId, but it still must not adopt a drifted document as
+    // the new baseline — that would quietly erase the evidence of the user's deletion.
+    await checkDrift('append_text', id, data)
     // The body's final newline is not a valid insert location, hence the -1.
     const end = (data.body.content.at(-1)?.endIndex ?? 2) - 1
     const mode = protectMode()
@@ -206,7 +254,7 @@ const handlers = {
     }
     // The revisionId from the fetch above makes the append atomic with the end index it read.
     await batch(id, requests, data.revisionId)
-    return `Appended ${text.length} chars at index ${end}.`
+    return recordBaseline(id, `Appended ${text.length} chars at index ${end}.`)
   },
 
   async delete_range({ documentId, revisionId, startIndex, endIndex, allowProtected = false }) {
@@ -214,7 +262,7 @@ const handlers = {
     const hit = overlapping(ranges, startIndex, endIndex)
     if (hit) throw refuse('delete_range', `the range ${startIndex}-${endIndex} overlaps`, doc, hit, mode)
     await batch(id, [{ deleteContentRange: { range: { startIndex, endIndex } } }], revisionId)
-    return `Deleted range ${startIndex}-${endIndex}.`
+    return recordBaseline(id, `Deleted range ${startIndex}-${endIndex}.`)
   },
 
   async replace_range({ documentId, revisionId, startIndex, endIndex, text, allowProtected = false }) {
@@ -227,7 +275,7 @@ const handlers = {
       { deleteContentRange: { range: { startIndex, endIndex } } },
       { insertText: { location: { index: startIndex }, text } },
     ], revisionId)
-    return `Replaced ${startIndex}-${endIndex} with ${text.length} chars.`
+    return recordBaseline(id, `Replaced ${startIndex}-${endIndex} with ${text.length} chars.`)
   },
 
   async replace_body({ documentId, html, revisionId, allowProtected = false }) {
@@ -244,7 +292,7 @@ const handlers = {
       fileId: id,
       media: { mimeType: 'text/html', body: html },
     })
-    return `Replaced body of ${id}. URL unchanged: https://docs.google.com/document/d/${id}/edit`
+    return recordBaseline(id, `Replaced body of ${id}. URL unchanged: https://docs.google.com/document/d/${id}/edit`)
   },
 
   async create_doc({ title, html, folderId }) {
@@ -258,7 +306,22 @@ const handlers = {
       ...(html ? { media: { mimeType: 'text/html', body: html } } : {}),
       fields: 'id,name',
     })
-    return `Created "${res.data.name}"\nid: ${res.data.id}\nhttps://docs.google.com/document/d/${res.data.id}/edit`
+    return recordBaseline(res.data.id,
+      `Created "${res.data.name}"\nid: ${res.data.id}\nhttps://docs.google.com/document/d/${res.data.id}/edit`)
+  },
+
+  async sync_baseline({ documentId }) {
+    const { docs } = await apis()
+    const id = docId(documentId)
+    const { data } = await docs.documents.get({ documentId: id })
+    const text = docText(data)
+    const prev = await loadSnapshot(id)
+    await saveSnapshot(id, { revisionId: data.revisionId, text })
+    if (!prev) return 'No previous baseline; adopted current text.'
+    const diff = diffParagraphs(paragraphs(prev.text), paragraphs(text))
+    return hasDrift(diff)
+      ? `Baseline updated to revision ${data.revisionId}. Adopted:\n${describeDrift(diff)}`
+      : `Baseline updated to revision ${data.revisionId}. Nothing had changed since the previous baseline.`
   },
 }
 

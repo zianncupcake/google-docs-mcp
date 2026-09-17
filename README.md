@@ -67,13 +67,14 @@ Then ask Claude to read any Google Doc URL; `read_doc` returns its text.
 
 | tool | use |
 |---|---|
-| `read_doc` | text + per-run character indices + protected ranges |
+| `read_doc` | text + per-run character indices + protected ranges + baseline status |
 | `replace_all_text` | safest edit; no index arithmetic |
 | `insert_text` / `delete_range` | surgical, index-based |
 | `replace_range` | swap the text between two indices in one atomic call |
 | `append_text` | resolves the end index for you |
 | `replace_body` | swap the whole body via Drive upload, **keeps the URL** |
 | `create_doc` | new doc, optionally from HTML |
+| `sync_baseline` | adopt the doc's current text as the baseline; the only way to clear drift |
 
 ## Protecting your own writing
 
@@ -104,6 +105,45 @@ asked for your own marked text to be overwritten.
 `read_doc` lists the ranges under a `--- PROTECTED ---` section (pass
 `withProtected: false` to omit it).
 
+## The baseline — catching what `revisionId` cannot
+
+`revisionId` only covers the gap between one read and the write that immediately follows
+it. It is blind to the gap that actually matters: a change you made **between the
+assistant's last write and its next read**. By the time it re-reads, your version *is* the
+current revision, so the stale-edit check passes and the regenerated text lands on top of
+your edit with the server's blessing.
+
+Deletions are the case nothing else catches. Italic marking can only protect text that
+still exists — delete a paragraph and the marker goes with it.
+
+So the server keeps its own copy of what it last wrote, and compares **content**, not
+revisions. After every successful mutating call it re-fetches the document and snapshots
+the text; before every write it diffs that snapshot against the live document, paragraph by
+paragraph (an LCS diff, so a paragraph you merely moved is not reported as a change). If
+anything was removed or added in between, the write is refused with a summary of what
+changed:
+
+```
+delete_range refused: 2 paragraphs removed, 1 added since my last write
+removed:
+  - "The pilot ran for six weeks across three teams."
+  …
+```
+
+**`sync_baseline` is the only way to clear drift**, and that asymmetry is the point. No
+edit tool has a flag to override it — `allowProtected` applies to the italic/highlight
+check only and never to drift. The intended recovery is `read_doc` to see what the document
+actually says now, decide what to keep, then `sync_baseline` to adopt it — not re-sending
+the same edit. `sync_baseline` writes nothing to the document; it only moves the snapshot.
+
+`read_doc` reports the current state under a `--- BASELINE ---` section — `in sync`, `no
+baseline recorded`, or the drift description (pass `withBaseline: false` to omit it).
+
+Snapshots live one JSON file per document at
+`~/.config/google-docs-mcp/snapshots/<documentId>.json` (mode 600 — they contain the
+document's text). A missing or unreadable snapshot degrades to "no baseline", never to an
+error; the next write re-creates it.
+
 ## Configuration
 
 | variable | default |
@@ -112,6 +152,8 @@ asked for your own marked text to be overwritten.
 | `GOOGLE_DOCS_MCP_TOKEN` | `~/.config/google-docs-mcp/token.json` |
 | `GOOGLE_DOCS_MCP_SCOPES` | `…/auth/documents …/auth/drive.file` (space separated) |
 | `GOOGLE_DOCS_MCP_PROTECT` | `italic` — what counts as a protection marker. Also `highlight` (any non-white background colour), `both`, or `off` to disable protection entirely. An unrecognised value falls back to `italic`. |
+| `GOOGLE_DOCS_MCP_SNAPSHOTS` | `~/.config/google-docs-mcp/snapshots` — directory holding one baseline snapshot per document. |
+| `GOOGLE_DOCS_MCP_BASELINE` | on. Set to `off` to disable drift detection entirely. Any other value leaves it on. |
 
 ## Tests
 
@@ -119,7 +161,8 @@ asked for your own marked text to be overwritten.
 npm test
 ```
 
-Runs the protection rules against hand-built documents. No credentials, no network.
+Runs the protection rules against hand-built documents and the drift diff against plain
+text. No credentials, no network.
 
 ## Gotchas
 
