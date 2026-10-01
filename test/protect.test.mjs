@@ -19,8 +19,15 @@ function docOf(...runs) {
 const hl = (r, g, b) => ({ backgroundColor: { color: { rgbColor: { red: r, green: g, blue: b } } } })
 
 describe('protectMode', () => {
-  test('defaults to italic when the env var is unset', () => {
-    assert.equal(protectMode({}), 'italic')
+  // The marker guard is opt-in: the baseline is the primary protection, and italic doubles
+  // as ordinary formatting, so an unset var must not mark anything.
+  test('defaults to off when the env var is unset', () => {
+    assert.equal(protectMode({}), 'off')
+  })
+
+  test('defaults to off for an empty or whitespace-only value', () => {
+    assert.equal(protectMode({ GOOGLE_DOCS_MCP_PROTECT: '' }), 'off')
+    assert.equal(protectMode({ GOOGLE_DOCS_MCP_PROTECT: '   ' }), 'off')
   })
 
   test('accepts each supported mode', () => {
@@ -33,8 +40,11 @@ describe('protectMode', () => {
     assert.equal(protectMode({ GOOGLE_DOCS_MCP_PROTECT: ' BOTH ' }), 'both')
   })
 
-  test('falls back to italic on an unrecognised value rather than dropping protection', () => {
-    assert.equal(protectMode({ GOOGLE_DOCS_MCP_PROTECT: 'nonsense' }), 'italic')
+  // A typo'd mode used to turn protection ON unexpectedly and refuse the user's edits;
+  // failing open is the lesser surprise now that the baseline carries the real guarantee.
+  test('falls back to off on an unrecognised value rather than guarding unexpectedly', () => {
+    assert.equal(protectMode({ GOOGLE_DOCS_MCP_PROTECT: 'nonsense' }), 'off')
+    assert.equal(protectMode({ GOOGLE_DOCS_MCP_PROTECT: 'italics' }), 'off')
   })
 })
 

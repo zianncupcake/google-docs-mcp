@@ -67,7 +67,7 @@ Then ask Claude to read any Google Doc URL; `read_doc` returns its text.
 
 | tool | use |
 |---|---|
-| `read_doc` | text + per-run character indices + protected ranges + baseline status |
+| `read_doc` | text + per-run character indices + baseline status + protected ranges (when the opt-in marker guard is on) |
 | `replace_all_text` | safest edit; no index arithmetic |
 | `insert_text` / `delete_range` | surgical, index-based |
 | `replace_range` | swap the text between two indices in one atomic call |
@@ -76,11 +76,27 @@ Then ask Claude to read any Google Doc URL; `read_doc` returns its text.
 | `create_doc` | new doc, optionally from HTML |
 | `sync_baseline` | adopt the doc's current text as the baseline; the only way to clear drift |
 
-## Protecting your own writing
+## Protecting your own writing — the marker guard (opt-in, off by default)
 
-Every mutating tool refuses to touch text you marked in the document. **Italicise it** and
-the edit tools will work around it. Nothing is stored outside the doc — the marker is the
-formatting, so it survives sharing, copying and editing by hand.
+> **Off by default.** The [content baseline](#the-baseline--catching-what-revisionid-cannot)
+> is the primary protection and it is always on. The marker guard is a second, narrower
+> mechanism you switch on yourself:
+>
+> ```bash
+> GOOGLE_DOCS_MCP_PROTECT=italic      # or: highlight, both
+> ```
+>
+> **Why it is no longer the default.** Italic is ordinary formatting — document subtitles,
+> emphasis, titles of works. Treating it as a protection marker silently marked text nobody
+> meant to protect, and then refused edits the user had explicitly asked for. The baseline
+> catches the case that actually matters (someone changed the doc since the last write,
+> including deletions, which no marker can survive), so the marker guard is opt-in and an
+> unset *or misspelled* `GOOGLE_DOCS_MCP_PROTECT` leaves it off. Use `highlight` if you want
+> a marker that is not also everyday formatting.
+
+With it on, every mutating tool refuses to touch text you marked in the document. **Italicise
+it** (or highlight it) and the edit tools will work around it. Nothing is stored outside the
+doc — the marker is the formatting, so it survives sharing, copying and editing by hand.
 
 Two guarantees, and neither can be bypassed by accident:
 
@@ -103,9 +119,13 @@ check **only** — the `revisionId` check still applies. It is for when you have
 asked for your own marked text to be overwritten.
 
 `read_doc` lists the ranges under a `--- PROTECTED ---` section (pass
-`withProtected: false` to omit it).
+`withProtected: false` to omit it). With no mode set it reads `disabled
+(GOOGLE_DOCS_MCP_PROTECT=off)` rather than `(none)`, so "nothing is marked" is never
+confused with "nothing was checked".
 
 ## The baseline — catching what `revisionId` cannot
+
+This is the protection that is on by default, and the one doing the real work.
 
 `revisionId` only covers the gap between one read and the write that immediately follows
 it. It is blind to the gap that actually matters: a change you made **between the
@@ -113,8 +133,9 @@ assistant's last write and its next read**. By the time it re-reads, your versio
 current revision, so the stale-edit check passes and the regenerated text lands on top of
 your edit with the server's blessing.
 
-Deletions are the case nothing else catches. Italic marking can only protect text that
-still exists — delete a paragraph and the marker goes with it.
+Deletions are the case nothing else catches. Marker protection can only defend text that
+still exists — delete a paragraph and the marker goes with it — and it is off unless you ask
+for it. The baseline covers both.
 
 So the server keeps its own copy of what it last wrote, and compares **content**, not
 revisions. After every successful mutating call it re-fetches the document and snapshots
@@ -151,7 +172,7 @@ error; the next write re-creates it.
 | `GOOGLE_OAUTH_CREDENTIALS` | `~/.config/google-docs-mcp/credentials.json` |
 | `GOOGLE_DOCS_MCP_TOKEN` | `~/.config/google-docs-mcp/token.json` |
 | `GOOGLE_DOCS_MCP_SCOPES` | `…/auth/documents …/auth/drive.file` (space separated) |
-| `GOOGLE_DOCS_MCP_PROTECT` | `italic` — what counts as a protection marker. Also `highlight` (any non-white background colour), `both`, or `off` to disable protection entirely. An unrecognised value falls back to `italic`. |
+| `GOOGLE_DOCS_MCP_PROTECT` | `off` — the marker guard is opt-in. Set `italic`, `highlight` (any non-white background colour) or `both` to switch it on. Unset, empty or unrecognised all mean `off`, so a typo never blocks a write; the baseline is the always-on protection. |
 | `GOOGLE_DOCS_MCP_SNAPSHOTS` | `~/.config/google-docs-mcp/snapshots` — directory holding one baseline snapshot per document. |
 | `GOOGLE_DOCS_MCP_BASELINE` | on. Set to `off` to disable drift detection entirely. Any other value leaves it on. |
 

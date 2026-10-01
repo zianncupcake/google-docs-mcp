@@ -190,9 +190,13 @@ const handlers = {
     if (withProtected) {
       const mode = protectMode()
       const ranges = protectedRanges(data, mode)
-      out += `\n--- PROTECTED ---\n` + (ranges.length
-        ? ranges.map(r => `[${r[0]}-${r[1]}] ${quote(data, r)}`).join('\n')
-        : '(none)') + '\n'
+      // "(none)" would read as "I checked and found nothing marked", which is a different
+      // fact from "the marker guard is switched off" — say which, like the baseline does.
+      out += `\n--- PROTECTED ---\n` + (mode === 'off'
+        ? 'disabled (GOOGLE_DOCS_MCP_PROTECT=off)'
+        : ranges.length
+          ? ranges.map(r => `[${r[0]}-${r[1]}] ${quote(data, r)}`).join('\n')
+          : '(none)') + '\n'
     }
     if (withBaseline) {
       out += `\n--- BASELINE ---\n${await baselineStatus(id, data)}\n`

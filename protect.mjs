@@ -1,16 +1,25 @@
 // The human marks text they do not want automated edits to touch, using formatting that
-// already exists in the document (italic by default, or a highlight colour). Nothing has
-// to be kept in sync: the marker travels with the doc and survives being edited by hand.
+// already exists in the document (italic, or a highlight colour). Nothing has to be kept in
+// sync: the marker travels with the doc and survives being edited by hand. Opt-in only —
+// see protectMode below for why.
 //
 // Everything here is pure — it takes a fetched document object and does no I/O — so the
 // rules can be tested without credentials.
 
 const MODES = ['italic', 'highlight', 'both', 'off']
 
+// Off unless asked for, because the marker guard turned out to be the wrong default. The
+// content baseline (baseline.mjs) is the primary protection: it catches edits and deletions
+// alike, and nothing can bypass it. Italic, meanwhile, is ordinary formatting — subtitles
+// and emphasis — so defaulting to it silently marked text nobody meant to protect and
+// refused the user's own requested edits. An unrecognised value lands on 'off' for the same
+// reason: a typo in the env var must not block writes the user asked for. Opt in explicitly
+// with GOOGLE_DOCS_MCP_PROTECT=italic|highlight|both.
+//
 // Read at call time, not at import time, so the mode can be flipped in tests.
 export function protectMode(env = process.env) {
-  const m = String(env.GOOGLE_DOCS_MCP_PROTECT ?? 'italic').trim().toLowerCase()
-  return MODES.includes(m) ? m : 'italic'
+  const m = String(env.GOOGLE_DOCS_MCP_PROTECT ?? 'off').trim().toLowerCase()
+  return MODES.includes(m) ? m : 'off'
 }
 
 // Docs omits zero components, and "no highlight" arrives either as an absent color or as
