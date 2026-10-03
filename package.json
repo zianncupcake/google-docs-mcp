@@ -12,6 +12,7 @@
   },
   "scripts": {
     "auth": "node authorize.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "test:e2e": "node e2e/format.mjs && node e2e/tools.mjs"
   }
 }
