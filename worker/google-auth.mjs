@@ -1,7 +1,8 @@
-// Signing in with Google. The OAuth provider sends every request outside /mcp here and gives
-// its helpers as env.OAUTH_PROVIDER; they bind the consent page and Google's `state` to the
-// browser, so a forged or replayed callback is refused before Google is asked for anything.
+// Signing in with Google, plus the public pages. The OAuth provider sends every request outside
+// /mcp here and gives its helpers as env.OAUTH_PROVIDER; they bind the consent page and Google's
+// `state` to the browser, so a forged or replayed callback is refused before Google is asked for anything.
 import { AuthorizationError, OAuthError, authorizationErrorRedirect } from '@cloudflare/workers-oauth-provider'
+import { consentPage, homepage, privacyPolicy } from './pages.mjs'
 
 const GOOGLE_AUTHORIZE = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token'
@@ -12,6 +13,8 @@ export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url)
     try {
+      if (pathname === '/' && request.method === 'GET') return homepage(request)
+      if (pathname === '/privacy' && request.method === 'GET') return privacyPolicy()
       if (pathname === '/authorize' && request.method === 'GET') return await showConsent(request, env.OAUTH_PROVIDER)
       if (pathname === '/authorize' && request.method === 'POST') return await redirectToGoogle(request, env)
       if (pathname === '/callback') return await finishSignIn(request, env)
@@ -113,24 +116,3 @@ function subject(idToken) {
 }
 
 const callbackUrl = (request) => new URL('/callback', request.url).href
-
-const escape = (value) => String(value).replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
-
-// The client's name and redirect come from dynamic registration, so an attacker picks them: escape both.
-function consentPage(client, handle) {
-  const name = escape(client.clientName)
-  return `<!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width">
-<title>Connect ${name} to Google Docs</title>
-<body style="font:16px system-ui;max-width:34rem;margin:3rem auto;padding:0 1rem">
-<h1>Allow ${name} to read and edit your Google Docs?</h1>
-<p>Access will be sent to <strong>${escape(client.redirectHost)}</strong>. The app named itself; that name is not verified.</p>
-${client.redirectIsLoopback ? '<p><strong>This sends access to an app on your computer.</strong> Continue only if you just started connecting from it.</p>' : ''}
-<p>Google will then ask you to sign in and approve access to your documents.</p>
-<form method="post">
-<input type="hidden" name="handle" value="${escape(handle)}">
-<button name="decision" value="allow">Continue to Google</button>
-<button name="decision" value="deny">Cancel</button>
-</form>`
-}

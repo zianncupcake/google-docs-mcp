@@ -287,6 +287,8 @@ Google account. It fits the Workers free plan.
   authorised redirect URI `https://google-docs-mcp.<subdomain>.workers.dev/callback`.
   `<subdomain>` is your account's workers.dev subdomain (Workers & Pages in the Cloudflare
   dashboard); `google-docs-mcp` is `name` in `worker/wrangler.jsonc`.
+- Branding page: the Worker serves the homepage at `/` and the privacy policy at `/privacy`.
+  Their contact email and wording live in `worker/pages.mjs`.
 
 **2. Deploy**
 
