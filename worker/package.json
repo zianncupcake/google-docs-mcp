@@ -1,0 +1,17 @@
+{
+  "name": "google-docs-mcp-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.2.3",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "agents": "^0.28.1"
+  },
+  "devDependencies": {
+    "wrangler": "^4.151.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  }
+}

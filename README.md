@@ -226,6 +226,8 @@ Drive trash, with snapshots in a temp directory. Covers every formatting and str
 including the calls that must be refused, and exits non-zero on any failed check. Needs the
 Google login and takes about four minutes.
 
+`worker/` has its own tests: `cd worker && npm install && npm test`.
+
 ## Gotchas
 
 - **Indices shift after every edit.** Re-read between edits. To rewrite a region, use
@@ -268,3 +270,73 @@ Repeat steps 1–6 there. Two things do **not** travel:
   `credentials.json` or download it again), but run `npm run auth` locally rather than
   copying `token.json` — that file is a live refresh token. Authorising again does not
   invalidate the first machine.
+
+## Hosted (Cloudflare)
+
+`worker/` serves the same tools as a remote MCP server on Cloudflare Workers, so claude.ai
+(or any MCP client) can add it as a custom connector. Each person signs in with their own
+Google account. It fits the Workers free plan.
+
+**1. Google Cloud** — a new OAuth client, separate from the desktop one above
+
+- Enable **Google Docs API** and **Google Drive API**.
+- OAuth consent screen: add the scopes `openid`, `…/auth/documents` and `…/auth/drive.file`,
+  then **publish** the app. In Testing, only listed test users can sign in and Google expires
+  their refresh tokens after 7 days.
+- Credentials → Create credentials → **OAuth client ID** → **Web application**, with the
+  authorised redirect URI `https://google-docs-mcp.<subdomain>.workers.dev/callback`.
+  `<subdomain>` is your account's workers.dev subdomain (Workers & Pages in the Cloudflare
+  dashboard); `google-docs-mcp` is `name` in `worker/wrangler.jsonc`.
+- Branding page: the Worker serves the homepage at `/` and the privacy policy at `/privacy`.
+  Their contact email and wording live in `worker/pages.mjs`.
+
+**2. Deploy**
+
+```bash
+cd worker
+npm install
+npx wrangler login
+npx wrangler deploy          # the first deploy also creates the OAUTH_KV and BASELINE_KV namespaces
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+```
+
+**3. Connect** — in claude.ai, Settings → Connectors → Add custom connector, URL
+`https://google-docs-mcp.<subdomain>.workers.dev/mcp`. Connecting shows this server's page
+naming the app that asked, then Google's sign-in.
+
+**Deploying** — after the first deploy, merging to `main` deploys: CI runs both test suites,
+then `wrangler deploy`, then checks the live Worker. The repository needs two GitHub secrets,
+`CLOUDFLARE_API_TOKEN` (a Cloudflare API token from the "Edit Cloudflare Workers" template) and
+`CLOUDFLARE_ACCOUNT_ID`. The Google client id and secret stay Worker secrets, set with
+`wrangler secret put` as above; GitHub never sees them. The KV namespace ids in
+`worker/wrangler.jsonc` are this deployment's, so a fork deploying its own Worker replaces them.
+
+Same tools and gotchas as the local server; `replace_body` still only works on docs created
+through this connector.
+
+**Limits**
+
+- Free-plan Workers get 10 ms of CPU per request. Reading or diffing a very large document can
+  run out and fail; the local server has no such limit.
+- Free-plan Workers KV allows 1,000 writes a day for the whole account. Each edit writes one
+  baseline snapshot, and each sign-in and hourly token refresh writes a few OAuth records, so
+  the free plan suits a handful of active users.
+- A connection lasts 30 days, then the client asks to connect again. If someone removes the
+  app's access in their Google account, their tool calls fail until the next hourly refresh,
+  which then asks them to connect again.
+
+**Privacy**
+
+- Google access and refresh tokens are kept in `OAUTH_KV`, encrypted by the OAuth provider with
+  a key only the holder of the user's MCP token can unwrap.
+- Baseline snapshots hold the **whole text** of every document the server edits, unencrypted,
+  in `BASELINE_KV` under the user's Google account id. Anyone with access to the Cloudflare
+  account can read them. Each is deleted 30 days after its last save; after that the next edit of
+  that document runs as if there were no baseline yet.
+
+**Distribution**
+
+`documents` is a Google *sensitive* scope. Until the app passes Google's OAuth verification,
+users see an "unverified app" warning, and the project is capped at 100 users for its
+lifetime. Verification needs a homepage and a privacy policy on a domain you own.
