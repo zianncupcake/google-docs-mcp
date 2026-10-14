@@ -14,3 +14,9 @@ test('one user cannot load another user\'s snapshot', async () => {
   await kvBaseline(kv, 'a').save('b:doc1', { revisionId: 'r1', text: 'a text' })
   assert.equal(await kvBaseline(kv, 'a:b').load('doc1'), null)
 })
+
+test('a snapshot is set to expire 30 days after it is saved', async () => {
+  const kv = new MemoryKV()
+  await kvBaseline(kv, 'alice').save('doc1', { revisionId: 'r1', text: 'alice text' })
+  assert.equal(kv.putOptions.get('alice:doc1').expirationTtl, 30 * 24 * 60 * 60)
+})

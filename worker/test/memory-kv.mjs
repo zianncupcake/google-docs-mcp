@@ -1,6 +1,8 @@
-// Just enough of a Workers KV namespace for the tests: get, put, delete, list.
+// Just enough of a Workers KV namespace for the tests: get, put, delete, list. putOptions keeps
+// the options of each key's last put, so a test can see its expiry.
 export class MemoryKV {
   #entries = new Map()
+  putOptions = new Map()
 
   async get(key, options) {
     const value = this.#entries.get(key)
@@ -9,8 +11,9 @@ export class MemoryKV {
     return type === 'json' ? JSON.parse(value) : value
   }
 
-  async put(key, value) {
+  async put(key, value, options) {
     this.#entries.set(key, String(value))
+    this.putOptions.set(key, options)
   }
 
   async delete(key) {
