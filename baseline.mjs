@@ -5,20 +5,12 @@
 // still exists, and deleted text leaves no marker behind.
 //
 // So the server keeps its own copy of what it last wrote and compares content rather than
-// revisions. The pure half below (flatten, split, diff, describe) is what the tests
-// exercise; the I/O half is deliberately thin.
+// revisions. This file holds the comparison; where the copies are kept is up to each server
+// (snapshots.mjs on disk, worker/baseline-kv.mjs in Workers KV).
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { join, dirname } from 'node:path'
 import { paragraphElements } from './walk.mjs'
 
-const CONFIG_DIR = join(homedir(), '.config', 'google-docs-mcp')
-const SNAPSHOT_DIR = process.env.GOOGLE_DOCS_MCP_SNAPSHOTS || join(CONFIG_DIR, 'snapshots')
-
-// ---------- pure ----------
-
-// The runs of a fetched document, with the character indices the edit tools need. index.mjs
+// The runs of a fetched document, with the character indices the edit tools need. tools.mjs
 // reads the same function so the text the baseline diffs is exactly the text read_doc
 // reports; two flatteners would drift apart, and that drift would look like the user's edit.
 export function docRuns(doc) {
@@ -132,32 +124,3 @@ export function describeDrift(diff) {
 export function baselineEnabled(env = process.env) {
   return String(env.GOOGLE_DOCS_MCP_BASELINE ?? '').trim().toLowerCase() !== 'off'
 }
-
-// ---------- I/O ----------
-
-// Doc ids arrive from the caller, so nothing but id characters may reach the path.
-export function snapshotPath(documentId) {
-  return join(SNAPSHOT_DIR, `${String(documentId).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
-}
-
-// A missing or corrupt snapshot degrades to "no baseline". Losing the safety net for one
-// write is bad; failing every write because a file was deleted by hand is worse.
-export async function loadSnapshot(documentId) {
-  try {
-    const snap = JSON.parse(await readFile(snapshotPath(documentId), 'utf8'))
-    return typeof snap?.text === 'string' ? snap : null
-  } catch {
-    return null
-  }
-}
-
-export async function saveSnapshot(documentId, { revisionId, text }) {
-  const path = snapshotPath(documentId)
-  await mkdir(dirname(path), { recursive: true })
-  const snap = { revisionId, text, savedAt: new Date().toISOString() }
-  // Mode 600 like token.json: these files hold whole document bodies.
-  await writeFile(path, JSON.stringify(snap, null, 2), { mode: 0o600 })
-  return snap
-}
-
-export { SNAPSHOT_DIR }

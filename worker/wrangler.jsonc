@@ -1,0 +1,10 @@
+{
+  "name": "google-docs-mcp",
+  "main": "index.mjs",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "kv_namespaces": [
+    { "binding": "OAUTH_KV" },
+    { "binding": "BASELINE_KV" }
+  ]
+}
