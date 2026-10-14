@@ -6,6 +6,8 @@
 // Everything here is pure — it takes a fetched document object and does no I/O — so the
 // rules can be tested without credentials.
 
+import { paragraphElements } from './walk.mjs'
+
 const MODES = ['italic', 'highlight', 'both', 'off']
 
 // Off unless asked for, because the marker guard turned out to be the wrong default. The
@@ -39,10 +41,8 @@ function marked(style, mode) {
 }
 
 function* textRuns(doc) {
-  for (const el of doc?.body?.content ?? []) {
-    for (const pe of el.paragraph?.elements ?? []) {
-      if (pe.textRun?.content) yield pe
-    }
+  for (const pe of paragraphElements(doc?.body?.content)) {
+    if (pe.textRun?.content) yield pe
   }
 }
 

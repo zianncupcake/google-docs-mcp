@@ -11,6 +11,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { paragraphElements } from './walk.mjs'
 
 const CONFIG_DIR = join(homedir(), '.config', 'google-docs-mcp')
 const SNAPSHOT_DIR = process.env.GOOGLE_DOCS_MCP_SNAPSHOTS || join(CONFIG_DIR, 'snapshots')
@@ -22,11 +23,9 @@ const SNAPSHOT_DIR = process.env.GOOGLE_DOCS_MCP_SNAPSHOTS || join(CONFIG_DIR, '
 // reports; two flatteners would drift apart, and that drift would look like the user's edit.
 export function docRuns(doc) {
   const runs = []
-  for (const el of doc?.body?.content ?? []) {
-    for (const pe of el.paragraph?.elements ?? []) {
-      const t = pe.textRun?.content
-      if (t) runs.push({ start: pe.startIndex, end: pe.endIndex, text: t })
-    }
+  for (const pe of paragraphElements(doc?.body?.content)) {
+    const t = pe.textRun?.content
+    if (t) runs.push({ start: pe.startIndex, end: pe.endIndex, text: t })
   }
   return runs
 }
