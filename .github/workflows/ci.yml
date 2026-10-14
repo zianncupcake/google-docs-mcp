@@ -1,0 +1,77 @@
+# Tests every pull request and every push to main, and deploys the Worker from main. See the README, Deploying.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One run per branch at a time, so a push is never deployed ahead of the one before it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  WRANGLER_SEND_METRICS: false
+
+jobs:
+  # Uses no secret, so it runs the same for a pull request from a fork.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            worker/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm ci
+        working-directory: worker
+      - run: npm test
+        working-directory: worker
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+
+      - name: Deploy
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_LOG: warn
+
+      # Asked as anybody would ask it. 000 is a request that got no answer.
+      - name: Check the live service
+        env:
+          BASE_URL: https://google-docs-mcp.cheongziann.workers.dev
+        run: |
+          answered() {
+            curl --silent --output /dev/null --write-out '%{http_code}' --max-time 30 "$@" || true
+          }
+          home=$(answered "$BASE_URL/")
+          mcp=$(answered --request POST "$BASE_URL/mcp")
+          echo "GET / answered $home, and POST /mcp with no token answered $mcp."
+          if [ "$home" != 200 ] || [ "$mcp" != 401 ]; then
+            echo "::error::The live service has to answer 200 and 401."
+            exit 1
+          fi

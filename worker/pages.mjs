@@ -43,8 +43,8 @@ your assistant tries to renew it.</li>
 <li><strong>Document snapshots.</strong> After Docs MCP changes a document, or when your
 assistant asks it to re-sync one, it stores a copy of that document's text, filed under your
 Google account ID. The copy is used only to detect edits made in the document since then, so that
-Docs MCP does not overwrite them. Snapshots are kept indefinitely, until you ask for them to be
-deleted.</li>
+Docs MCP does not overwrite them. Each snapshot is deleted automatically 30 days after it was last
+saved; every new save of the same document starts the 30 days again.</li>
 </ul>
 <p>Docs MCP does not log document content.</p>
 
@@ -56,7 +56,7 @@ described above.</p>
 <h2>Revoking access and deleting your data</h2>
 <p>Remove Docs MCP's access at any time on your
 <a href="https://myaccount.google.com/permissions">Google account permissions page</a>, and remove
-the connector from your assistant. To have your stored snapshots deleted, email
+the connector from your assistant. To have your stored snapshots deleted sooner than 30 days, email
 <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>
 
 <h2>Google API Services User Data Policy</h2>

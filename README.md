@@ -305,6 +305,13 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET
 `https://google-docs-mcp.<subdomain>.workers.dev/mcp`. Connecting shows this server's page
 naming the app that asked, then Google's sign-in.
 
+**Deploying** — after the first deploy, merging to `main` deploys: CI runs both test suites,
+then `wrangler deploy`, then checks the live Worker. The repository needs two GitHub secrets,
+`CLOUDFLARE_API_TOKEN` (a Cloudflare API token from the "Edit Cloudflare Workers" template) and
+`CLOUDFLARE_ACCOUNT_ID`. The Google client id and secret stay Worker secrets, set with
+`wrangler secret put` as above; GitHub never sees them. The KV namespace ids in
+`worker/wrangler.jsonc` are this deployment's, so a fork deploying its own Worker replaces them.
+
 Same tools and gotchas as the local server; `replace_body` still only works on docs created
 through this connector.
 
@@ -325,7 +332,8 @@ through this connector.
   a key only the holder of the user's MCP token can unwrap.
 - Baseline snapshots hold the **whole text** of every document the server edits, unencrypted,
   in `BASELINE_KV` under the user's Google account id. Anyone with access to the Cloudflare
-  account can read them, and they stay after a user disconnects until deleted from the namespace.
+  account can read them. Each is deleted 30 days after its last save; after that the next edit of
+  that document runs as if there were no baseline yet.
 
 **Distribution**
 
