@@ -125,7 +125,8 @@ export const TOOLS = [
       properties: { documentId: DOC, tabId: TAB,
                     withIndices: { type: 'boolean', description: 'Also return the per-run index map, tables, images and named ranges (default true)' },
                     withProtected: { type: 'boolean', description: 'Also return the protected ranges (default true)' },
-                    withBaseline: { type: 'boolean', description: 'Also report whether the document has changed since this server last wrote it (default true)' } } } },
+                    withBaseline: { type: 'boolean', description: 'Also report whether the document has changed since this server last wrote it (default true)' } } },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
   { name: 'replace_all_text',
     description: 'Replace every occurrence of a string throughout the document. The safest edit — no index arithmetic. Refused if any occurrence sits in protected text, because the API replaces all of them at once. With a tabId it only touches that tab.',
     inputSchema: { type: 'object', required: ['documentId', 'find', 'replace', 'revisionId'],
@@ -273,7 +274,7 @@ export const TOOLS = [
     description: 'Adopt the document\'s current text as the baseline this server compares future writes against, and report what changed since the last baseline. Writes NOTHING to the document. This is the ONLY way to clear a drift refusal — no edit tool has a flag to bypass one, deliberately: drift means the user changed the doc after this server last wrote it, so it must be read and understood, not overridden. Call read_doc first, then this.',
     inputSchema: { type: 'object', required: ['documentId'],
       properties: { documentId: DOC, tabId: TAB } },
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
 ]
 
 const REMEDY = 'The document changed since I last wrote it, so that change was almost certainly yours. '
