@@ -1,18 +1,27 @@
+import { DurableObject } from 'cloudflare:workers'
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider'
 import { createMcpHandler } from 'agents/mcp/server'
 import { Server } from '@modelcontextprotocol/server'
 import { TOOLS, createCallTool } from '../tools.mjs'
 import googleSignIn, { tokenExchangeCallback } from './google-auth.mjs'
 import { googleDocs } from './google-api.mjs'
-import { kvBaseline } from './baseline-kv.mjs'
+import { BaselineStore, userBaseline } from './baselines.mjs'
 
 // props are what google-auth.mjs stored for the user this request's token belongs to.
 function mcpServer(env, props) {
-  const callTool = createCallTool({ google: googleDocs(props.accessToken), baseline: kvBaseline(env.BASELINE_KV, props.userId) })
+  const callTool = createCallTool({ google: googleDocs(props.accessToken), baseline: userBaseline(env.BASELINES, props.userId) })
   const server = new Server({ name: 'google-docs-mcp', version: '1.0.0' }, { capabilities: { tools: {} } })
   server.setRequestHandler('tools/list', () => ({ tools: TOOLS }))
   server.setRequestHandler('tools/call', (request) => callTool(request.params.name, request.params.arguments))
   return server
+}
+
+// One per signed-in user. It extends DurableObject so the Worker can call its methods.
+export class Baselines extends DurableObject {
+  #store = new BaselineStore(this.ctx.storage)
+  load(key) { return this.#store.load(key) }
+  save(key, snapshot) { return this.#store.save(key, snapshot) }
+  alarm() { return this.#store.alarm() }
 }
 
 const mcp = {
