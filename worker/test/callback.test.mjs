@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import { register } from 'node:module'
 import { MemoryKV } from './memory-kv.mjs'
 
-// The OAuth provider imports a Workers-only module for a class these tests never reach, so Node
-// is handed an empty stand-in before the Worker is loaded.
+// The Worker and its OAuth provider import a Workers-only module for classes these tests never
+// reach, so Node is handed an empty stand-in before the Worker is loaded.
 register('data:text/javascript,' + encodeURIComponent(`export const resolve = (specifier, context, next) =>
   specifier === 'cloudflare:workers'
-    ? { url: 'data:text/javascript,export class WorkerEntrypoint {}', shortCircuit: true }
+    ? { url: 'data:text/javascript,export class WorkerEntrypoint {}; export class DurableObject {}', shortCircuit: true }
     : next(specifier, context)`))
 const { default: worker } = await import('../index.mjs')
 
@@ -16,7 +16,7 @@ const CLIENT_REDIRECT = 'https://client.example/callback'
 
 test('the Google callback refuses a missing or mismatched state before asking Google', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => { throw new Error('Google must not be called') })
-  const env = { OAUTH_KV: new MemoryKV(), BASELINE_KV: new MemoryKV(), GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret' }
+  const env = { OAUTH_KV: new MemoryKV(), GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret' }
   const send = (path, init) => worker.fetch(new Request(ORIGIN + path, init), env, { waitUntil() {}, passThroughOnException() {} })
   const cookie = (res, kind) => res.headers.getSetCookie().find(c => c.startsWith(`__Host-oauth-${kind}-`)).split(';')[0]
 

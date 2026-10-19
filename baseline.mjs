@@ -6,7 +6,7 @@
 //
 // So the server keeps its own copy of what it last wrote and compares content rather than
 // revisions. This file holds the comparison; where the copies are kept is up to each server
-// (snapshots.mjs on disk, worker/baseline-kv.mjs in Workers KV).
+// (snapshots.mjs on disk, worker/baselines.mjs in a Durable Object).
 
 import { paragraphElements } from './walk.mjs'
 

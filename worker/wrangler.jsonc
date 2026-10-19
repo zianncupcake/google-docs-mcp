@@ -4,7 +4,8 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "kv_namespaces": [
-    { "binding": "OAUTH_KV", "id": "dad7995e65324b18888378a857cc57fc" },
-    { "binding": "BASELINE_KV", "id": "5d2908c51ecb41f38073c789395d05d1" }
-  ]
+    { "binding": "OAUTH_KV", "id": "dad7995e65324b18888378a857cc57fc" }
+  ],
+  "durable_objects": { "bindings": [{ "name": "BASELINES", "class_name": "Baselines" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Baselines"] }]
 }

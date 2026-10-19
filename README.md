@@ -296,7 +296,7 @@ Google account. It fits the Workers free plan.
 cd worker
 npm install
 npx wrangler login
-npx wrangler deploy          # the first deploy also creates the OAUTH_KV and BASELINE_KV namespaces
+npx wrangler deploy          # the first deploy also creates the OAUTH_KV namespace and the Baselines Durable Object
 npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 ```
@@ -319,9 +319,9 @@ through this connector.
 
 - Free-plan Workers get 10 ms of CPU per request. Reading or diffing a very large document can
   run out and fail; the local server has no such limit.
-- Free-plan Workers KV allows 1,000 writes a day for the whole account. Each edit writes one
-  baseline snapshot, and each sign-in and hourly token refresh writes a few OAuth records, so
-  the free plan suits a handful of active users.
+- Free-plan Workers KV allows 1,000 writes a day for the whole account. Each sign-in and hourly
+  token refresh writes a few OAuth records, so the free plan suits a handful of active users.
+  Baseline snapshots are in a Durable Object, whose free-plan limits are far higher.
 - A connection lasts 30 days, then the client asks to connect again. If someone removes the
   app's access in their Google account, their tool calls fail until the next hourly refresh,
   which then asks them to connect again.
@@ -331,7 +331,7 @@ through this connector.
 - Google access and refresh tokens are kept in `OAUTH_KV`, encrypted by the OAuth provider with
   a key only the holder of the user's MCP token can unwrap.
 - Baseline snapshots hold the **whole text** of every document the server edits, unencrypted,
-  in `BASELINE_KV` under the user's Google account id. Anyone with access to the Cloudflare
+  in a Durable Object of the user's own (`Baselines`). Anyone with access to the Cloudflare
   account can read them. Each is deleted 30 days after its last save; after that the next edit of
   that document runs as if there were no baseline yet.
 
