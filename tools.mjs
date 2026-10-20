@@ -266,6 +266,14 @@ export const TOOLS = [
       properties: { documentId: { type: 'string' }, html: { type: 'string', description: 'Full HTML document body' },
                     revisionId: REVISION, allowProtected: ALLOWED } },
     annotations: DESTRUCTIVE },
+  { name: 'find_files',
+    description: 'Find Google Docs by name and get their documentId, so you can read or edit a doc you only know by title. Returns each match\'s name, id, URL and last-modified time, newest first. Searches every file the user can see; this needs the drive.metadata.readonly scope, and without it only files this app created are visible.',
+    inputSchema: { type: 'object', required: ['query'],
+      properties: {
+        query: { type: 'string', description: 'Substring of the file name to match (case-insensitive).' },
+        limit: { type: 'number', description: 'Maximum results, 1-100 (default 20).' },
+        mimeType: { type: 'string', description: "Drive mimeType to filter by. Defaults to Google Docs; pass an empty string to match files of any type." } } },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
   { name: 'create_doc',
     description: 'Create a new Google Doc, optionally from HTML. Returns its id and URL.',
     inputSchema: { type: 'object', required: ['title'],
@@ -397,6 +405,17 @@ function describeSegments(doc) {
     lines.push(`footnote ${footnoteId}: ${JSON.stringify(plainText(footnote.content))}`)
   }
   return lines.length ? '\n\n--- HEADER, FOOTER, FOOTNOTES ---\n' + lines.join('\n') : ''
+}
+
+// Builds a Drive files.list `q`. The name is user text, so quotes and backslashes are
+// escaped; an empty mimeType drops the type filter so any file type matches.
+export function driveQuery(query, mimeType) {
+  const name = String(query ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+  return [
+    `name contains '${name}'`,
+    mimeType ? `mimeType = '${mimeType}'` : null,
+    'trashed = false',
+  ].filter(Boolean).join(' and ')
 }
 
 export function createCallTool({ google, baseline }) {
@@ -883,6 +902,14 @@ export function createCallTool({ google, baseline }) {
       }
       await google.replaceDocHtml(id, args.html)
       return recordBaseline(id, `Replaced body of ${id}. URL unchanged: https://docs.google.com/document/d/${id}/edit`)
+    },
+
+    async find_files({ query, limit = 20, mimeType = 'application/vnd.google-apps.document' }) {
+      const files = await google.findFiles({ query, limit, mimeType })
+      if (!files.length) return `No files matching "${query}".`
+      return files.map(f =>
+        `${f.name}\nid: ${f.id}\n${f.webViewLink || `https://docs.google.com/document/d/${f.id}/edit`}\nmodified: ${f.modifiedTime}`
+      ).join('\n\n')
     },
 
     async create_doc({ title, html, folderId }) {

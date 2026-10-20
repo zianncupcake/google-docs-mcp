@@ -10,8 +10,10 @@ const CREDS_PATH = process.env.GOOGLE_OAUTH_CREDENTIALS || join(CONFIG_DIR, 'cre
 
 // 'documents' covers every doc the user can already open; drive.file is limited to
 // files this app created, which is why wholesale-replace only works on those.
+// drive.metadata.readonly lets find_files search the user's files by name (names and
+// ids only, never content); without it files.list sees only the app-created ones.
 const SCOPES = (process.env.GOOGLE_DOCS_MCP_SCOPES ||
-  'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file').split(/\s+/)
+  'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly').split(/\s+/)
 
 async function loadClient() {
   const raw = JSON.parse(await readFile(CREDS_PATH, 'utf8'))

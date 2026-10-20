@@ -1,4 +1,6 @@
 // The Google client tools.mjs needs, over plain fetch: googleapis is too heavy for a Worker.
+import { driveQuery } from '../tools.mjs'
+
 const DOCS = 'https://docs.googleapis.com/v1/documents'
 const DRIVE = 'https://www.googleapis.com/drive/v3/files'
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files'
@@ -35,6 +37,17 @@ export function googleDocs(accessToken) {
       await call(`${UPLOAD}/${encodeURIComponent(id)}?uploadType=media`, {
         method: 'PATCH', headers: { 'Content-Type': 'text/html; charset=UTF-8' }, body: html,
       })
+    },
+    async findFiles({ query, limit, mimeType }) {
+      const params = new URLSearchParams({
+        q: driveQuery(query, mimeType),
+        pageSize: String(Math.min(Math.max(limit, 1), 100)),
+        orderBy: 'modifiedTime desc',
+        fields: 'files(id,name,modifiedTime,webViewLink)',
+        spaces: 'drive',
+      })
+      const body = await call(`${DRIVE}?${params}`)
+      return body.files ?? []
     },
   }
 }
