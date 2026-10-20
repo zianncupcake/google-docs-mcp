@@ -8,7 +8,7 @@ import {
   docRuns, docText, paragraphs, diffParagraphs, describeDrift, hasDrift,
   baselineEnabled,
 } from './baseline.mjs'
-import { paragraphElements } from './walk.mjs'
+import { paragraphElements, textStyleAt } from './walk.mjs'
 
 // Accepts a bare id or any /document/d/<id>/ URL.
 function docId(input) {
@@ -134,7 +134,7 @@ export const TOOLS = [
                     matchCase: { type: 'boolean', description: 'Default true' },
                     revisionId: REVISION, allowProtected: ALLOWED } } },
   { name: 'insert_text',
-    description: 'Insert text at a character index. Get indices from read_doc first — they shift after every edit. Refused if the index falls inside protected text; inserting at either edge of it is fine.',
+    description: 'Insert text at a character index. Get indices from read_doc first — they shift after every edit. Refused if the index falls inside protected text; inserting at either edge of it is fine. The inserted text takes its styling from whatever sits at that index, so text inserted into an empty paragraph picks up that paragraph line spacing and indents — follow with format_text or format_paragraph when you need something else.',
     inputSchema: { type: 'object', required: ['documentId', 'index', 'text', 'revisionId'],
       properties: { documentId: DOC, tabId: TAB, index: { type: 'number' }, text: { type: 'string' },
                     revisionId: REVISION, allowProtected: ALLOWED } } },
@@ -150,7 +150,7 @@ export const TOOLS = [
                     revisionId: REVISION, allowProtected: ALLOWED } },
     annotations: DESTRUCTIVE },
   { name: 'replace_range',
-    description: 'Replace the text between two character indices with new text, in one atomic call. Use this instead of delete_range + insert_text, whose indices shift in between. Refused if the range overlaps protected text.',
+    description: 'Replace the text between two character indices with new text, in one atomic call. Use this instead of delete_range + insert_text, whose indices shift in between. The new text keeps the styling of the text it replaced, link included; override it with format_text afterwards. Refused if the range overlaps protected text.',
     inputSchema: { type: 'object', required: ['documentId', 'startIndex', 'endIndex', 'text', 'revisionId'],
       properties: { documentId: DOC, tabId: TAB, startIndex: { type: 'number' }, endIndex: { type: 'number' },
                     text: { type: 'string' }, revisionId: REVISION, allowProtected: ALLOWED } },
@@ -592,9 +592,19 @@ export function createCallTool({ google, baseline }) {
       guardRange('replace_range', checked, startIndex, endIndex)
       // Delete and insert in one batch: separate calls would leave the doc half-edited and
       // every index after the deletion already shifted.
+      //
+      // The styled runs are deleted before the insert lands, so the new text would otherwise
+      // be styled from its neighbours — silently losing the bold, size, colour or link the
+      // replaced text carried. Restate the replaced run's own style over it instead, with
+      // fields '*' so anything inherited from a neighbour is cleared too.
+      const carried = text ? textStyleAt(checked.doc.body?.content, startIndex) : undefined
       await batch(checked.id, [
         { deleteContentRange: { range: span({ startIndex, endIndex }, checked.tabId) } },
         { insertText: { location: at(startIndex, checked.tabId), text } },
+        ...(carried ? [{ updateTextStyle: {
+          range: span({ startIndex, endIndex: startIndex + text.length }, checked.tabId),
+          textStyle: carried, fields: '*',
+        } }] : []),
       ], revisionId)
       return recordBaseline(checked.id, `Replaced ${startIndex}-${endIndex} with ${text.length} chars.`, checked.tabId)
     },
