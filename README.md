@@ -86,6 +86,7 @@ Then ask Claude to read any Google Doc URL; `read_doc` returns its text.
 | `insert_footnote` | footnote at an index or after matched text |
 | `create_named_range` / `replace_named_range` / `delete_named_range` | bookmark a span, rewrite it later without indices |
 | `replace_body` | swap the whole body via Drive upload, **keeps the URL** |
+| `find_files` | find Google Docs by name, returns each `documentId` to read or edit (needs `drive.metadata.readonly`) |
 | `create_doc` | new doc, optionally from HTML |
 | `sync_baseline` | adopt the doc's current text as the baseline; the only way to clear drift |
 
@@ -203,7 +204,7 @@ error; the next write re-creates it.
 |---|---|
 | `GOOGLE_OAUTH_CREDENTIALS` | `~/.config/google-docs-mcp/credentials.json` |
 | `GOOGLE_DOCS_MCP_TOKEN` | `~/.config/google-docs-mcp/token.json` |
-| `GOOGLE_DOCS_MCP_SCOPES` | `…/auth/documents …/auth/drive.file` (space separated) |
+| `GOOGLE_DOCS_MCP_SCOPES` | `…/auth/documents …/auth/drive.file …/auth/drive.metadata.readonly` (space separated) |
 | `GOOGLE_DOCS_MCP_PROTECT` | `off` — the marker guard is opt-in. Set `italic`, `highlight` (any non-white background colour) or `both` to switch it on. Unset, empty or unrecognised all mean `off`, so a typo never blocks a write; the baseline is the always-on protection. |
 | `GOOGLE_DOCS_MCP_SNAPSHOTS` | `~/.config/google-docs-mcp/snapshots` — directory holding one baseline snapshot per document. |
 | `GOOGLE_DOCS_MCP_BASELINE` | on. Set to `off` to disable drift detection entirely. Any other value leaves it on. |
@@ -238,6 +239,11 @@ Google login and takes about four minutes.
   to `GOOGLE_DOCS_MCP_SCOPES` and re-run `npm run auth` — that grants full Drive access.
 - `documents` scope already covers every doc you can open, so the index-based edit
   tools work on existing docs without widening anything.
+- `find_files` searches by name through the Drive API, which `drive.file` cannot do — it
+  would see only app-created files. The default scopes add `…/auth/drive.metadata.readonly`
+  (names and ids only, never content) for this. After changing scopes, delete the token and
+  re-run `npm run auth` to re-consent; the Worker needs the scope added on its Cloud consent
+  screen and a redeploy.
 - If Google Drive tools vanish in another terminal, unset `ANTHROPIC_API_KEY` — it
   takes precedence over the claude.ai login and disables connectors.
 - If the login dies about a week after authorising, the Cloud consent screen is still in
@@ -280,9 +286,10 @@ Google account. It fits the Workers free plan.
 **1. Google Cloud** — a new OAuth client, separate from the desktop one above
 
 - Enable **Google Docs API** and **Google Drive API**.
-- OAuth consent screen: add the scopes `openid`, `…/auth/documents` and `…/auth/drive.file`,
-  then **publish** the app. In Testing, only listed test users can sign in and Google expires
-  their refresh tokens after 7 days.
+- OAuth consent screen: add the scopes `openid`, `…/auth/documents`, `…/auth/drive.file` and
+  `…/auth/drive.metadata.readonly` (the last lets `find_files` search by name), then **publish**
+  the app. In Testing, only listed test users can sign in and Google expires their refresh
+  tokens after 7 days.
 - Credentials → Create credentials → **OAuth client ID** → **Web application**, with the
   authorised redirect URI `https://google-docs-mcp.<subdomain>.workers.dev/callback`.
   `<subdomain>` is your account's workers.dev subdomain (Workers & Pages in the Cloudflare

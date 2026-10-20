@@ -4,7 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { google } from 'googleapis'
 import { getAuth } from './auth.mjs'
-import { TOOLS, createCallTool } from './tools.mjs'
+import { TOOLS, createCallTool, driveQuery } from './tools.mjs'
 import * as snapshots from './snapshots.mjs'
 
 let _docs, _drive
@@ -42,6 +42,17 @@ const googleDocs = {
   async replaceDocHtml(fileId, html) {
     const { drive } = await apis()
     await drive.files.update({ fileId, media: { mimeType: 'text/html', body: html } })
+  },
+  async findFiles({ query, limit, mimeType }) {
+    const { drive } = await apis()
+    const res = await drive.files.list({
+      q: driveQuery(query, mimeType),
+      pageSize: Math.min(Math.max(limit, 1), 100),
+      orderBy: 'modifiedTime desc',
+      fields: 'files(id,name,modifiedTime,webViewLink)',
+      spaces: 'drive',
+    })
+    return res.data.files ?? []
   },
 }
 

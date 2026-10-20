@@ -7,7 +7,7 @@ import { consentPage, homepage, privacyPolicy } from './pages.mjs'
 const GOOGLE_AUTHORIZE = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token'
 // openid adds only an id_token, whose subject is the user id that grants and baselines are keyed by.
-const SCOPES = 'openid https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file'
+const SCOPES = 'openid https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly'
 
 export default {
   async fetch(request, env) {
