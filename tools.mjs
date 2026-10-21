@@ -82,7 +82,7 @@ const MARGINS = ['marginTop', 'marginBottom', 'marginLeft', 'marginRight']
 const TABLE_ACTIONS = ['insert_row', 'insert_column', 'delete_row', 'delete_column', 'merge_cells', 'unmerge_cells', 'set_column_width', 'delete_table']
 const BREAKS = { page: null, section_next_page: 'NEXT_PAGE', section_continuous: 'CONTINUOUS' }
 
-function paragraphStyleFrom({ alignment, namedStyleType, lineSpacing, spaceAbove, spaceBelow, indentStart, indentFirstLine }) {
+function paragraphStyleFrom({ alignment, namedStyleType, lineSpacing, spaceAbove, spaceBelow, indentStart, indentFirstLine, keepWithNext }) {
   const paragraphStyle = {}
   const fields = []
   if (alignment != null) {
@@ -97,6 +97,7 @@ function paragraphStyleFrom({ alignment, namedStyleType, lineSpacing, spaceAbove
   for (const [key, value] of Object.entries({ spaceAbove, spaceBelow, indentStart, indentFirstLine })) {
     if (value != null) { paragraphStyle[key] = pt(value); fields.push(key) }
   }
+  if (keepWithNext != null) { paragraphStyle.keepWithNext = keepWithNext; fields.push('keepWithNext') }
   return { paragraphStyle, fields: fields.join(',') }
 }
 
@@ -166,7 +167,7 @@ export const TOOLS = [
                     link: { type: 'string', description: 'URL; "" removes the link' },
                     revisionId: REVISION, allowProtected: ALLOWED } } },
   { name: 'format_paragraph',
-    description: 'Style whole paragraphs touching the addressed text: alignment, named style (heading levels), line spacing, spacing, indents, bullets. Setting namedStyleType wipes run-level font, size, bold and italic — set it before format_text, never after — so it is refused on a paragraph holding protected text.',
+    description: 'Style whole paragraphs touching the addressed text: alignment, named style (heading levels), line spacing, spacing, indents, keep-with-next, bullets. Setting namedStyleType wipes run-level font, size, bold and italic — set it before format_text, never after — so it is refused on a paragraph holding protected text.',
     inputSchema: { type: 'object', required: ['documentId', 'revisionId'],
       properties: { documentId: DOC, tabId: TAB, ...ADDRESS,
                     alignment: { type: 'string', enum: ALIGNMENTS },
@@ -174,6 +175,7 @@ export const TOOLS = [
                     lineSpacing: { type: 'number', description: 'Percent: 100 is single, 115 is the Docs default' },
                     spaceAbove: { type: 'number', description: 'Points' }, spaceBelow: { type: 'number', description: 'Points' },
                     indentStart: { type: 'number', description: 'Points' }, indentFirstLine: { type: 'number', description: 'Points' },
+                    keepWithNext: { type: 'boolean', description: 'Keep this paragraph on the same page as the one after it, so a heading is not stranded at the bottom of a page.' },
                     bullets: { type: 'string', enum: ['disc', 'numbered', 'none'] },
                     revisionId: REVISION, allowProtected: ALLOWED } } },
   { name: 'set_page_setup',
@@ -642,7 +644,7 @@ export function createCallTool({ google, baseline }) {
       const { paragraphStyle, fields } = paragraphStyleFrom(args)
       const { bullets } = args
       if (bullets != null && bullets !== 'none' && !BULLET_PRESETS[bullets]) throw new Error('bullets must be disc, numbered or none.')
-      if (!fields && bullets == null) throw new Error('No style given. Pass at least one of alignment, namedStyleType, lineSpacing, spaceAbove, spaceBelow, indentStart, indentFirstLine, bullets.')
+      if (!fields && bullets == null) throw new Error('No style given. Pass at least one of alignment, namedStyleType, lineSpacing, spaceAbove, spaceBelow, indentStart, indentFirstLine, keepWithNext, bullets.')
       const checked = await preflight('format_paragraph', args)
       const { id, tabId, doc } = checked
       const found = resolveRanges(doc, args)
