@@ -67,13 +67,14 @@ Then ask Claude to read any Google Doc URL; `read_doc` returns its text.
 
 | tool | use |
 |---|---|
-| `read_doc` | text, per-run character indices and styles, baseline status, protected ranges (when the opt-in marker guard is on), page setup, tabs, tables, images, named ranges, header/footer/footnotes |
+| `read_doc` | text, per-run character indices and styles, per-paragraph styles (named style, spacing, indents, bullets), baseline status, protected ranges (when the opt-in marker guard is on), page setup, tabs, tables, images, named ranges, header/footer/footnotes |
 | `replace_all_text` | safest edit; no index arithmetic |
 | `insert_text` / `delete_range` | surgical, index-based |
 | `replace_range` | swap the text between two indices in one atomic call |
 | `append_text` | resolves the end index for you |
 | `format_text` | bold, italic, underline, strikethrough, size, font, colours, link — by `find` text or index range |
 | `format_paragraph` | alignment, heading level, line spacing, spacing, indents, bullets |
+| `copy_paragraph_format` | paint one paragraph's named style, spacing, indents and bullet onto others |
 | `set_page_setup` | margins, page size (A4 / LETTER / LEGAL or custom), orientation |
 | `insert_table` | new table, optionally filled from a 2D array |
 | `edit_table` | insert/delete a row or column, merge/unmerge cells, column width, delete the table |

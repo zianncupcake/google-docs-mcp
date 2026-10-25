@@ -8,7 +8,7 @@ import {
   docRuns, docText, paragraphs, diffParagraphs, describeDrift, hasDrift,
   baselineEnabled,
 } from './baseline.mjs'
-import { paragraphElements, textStyleAt } from './walk.mjs'
+import { paragraphElements, paragraphBlocks, textStyleAt } from './walk.mjs'
 
 // Accepts a bare id or any /document/d/<id>/ URL.
 function docId(input) {
@@ -101,6 +101,29 @@ function paragraphStyleFrom({ alignment, namedStyleType, lineSpacing, spaceAbove
   return { paragraphStyle, fields: fields.join(',') }
 }
 
+// Which of the two bullet presets renders like a source bullet. Ordered lists carry a
+// glyphType (DECIMAL, ALPHA, ROMAN…); unordered ones leave it unset and use a glyphSymbol.
+// That ordered/unordered split is all createParagraphBullets' presets let us match — the
+// exact glyph and listId are not reproducible through the API, and a visual match is enough.
+function bulletGlyph(doc, bullet) {
+  const level = doc.lists?.[bullet.listId]?.listProperties?.nestingLevels?.[bullet.nestingLevel ?? 0]
+  return level?.glyphType && level.glyphType !== 'GLYPH_TYPE_UNSPECIFIED' ? 'numbered' : 'disc'
+}
+
+// The paragraph-level fields copy_paragraph_format carries from one paragraph to another.
+const COPY_PARAGRAPH_FIELDS = ['namedStyleType', 'lineSpacing', 'spaceAbove', 'spaceBelow', 'indentStart', 'indentFirstLine']
+
+// Only the fields the source has set, so the target inherits the same named-style defaults
+// for the rest rather than being forced to 0 where the source merely left a field unset.
+function copiedParagraphStyle(style = {}) {
+  const paragraphStyle = {}
+  const fields = []
+  for (const key of COPY_PARAGRAPH_FIELDS) {
+    if (style[key] != null) { paragraphStyle[key] = style[key]; fields.push(key) }
+  }
+  return { paragraphStyle, fields: fields.join(',') }
+}
+
 const REV = 'From read_doc. Required: the edit is refused if the document changed since.'
 const ALLOW = 'Skip the protected-text check. Only pass true when the user has explicitly asked to overwrite their own marked text. The revisionId check still applies.'
 
@@ -115,6 +138,7 @@ const ADDRESS = {
   matchCase: { type: 'boolean', description: 'Default true. Only with `find`.' },
   startIndex: { type: 'number' }, endIndex: { type: 'number', description: 'Exclusive.' },
 }
+const ADDRESS_BLOCK = { type: 'object', description: 'A paragraph: by `find` (exact text), or by startIndex/endIndex from read_doc.', properties: ADDRESS }
 const TABLE = { type: 'number', description: '1-based table number from read_doc' }
 const CELL = { row: { type: 'number', description: '1-based' }, column: { type: 'number', description: '1-based' } }
 const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
@@ -178,6 +202,12 @@ export const TOOLS = [
                     keepWithNext: { type: 'boolean', description: 'Keep this paragraph on the same page as the one after it, so a heading is not stranded at the bottom of a page.' },
                     bullets: { type: 'string', enum: ['disc', 'numbered', 'none'] },
                     revisionId: REVISION, allowProtected: ALLOWED } } },
+  { name: 'copy_paragraph_format',
+    description: 'Format painter for paragraph-level style. Reads the source paragraph\'s named style, line spacing, spacing above/below, indents and bullet, then applies them to every paragraph the target touches so they render the same — use it to restore the list membership and indents a moved paragraph lost. Bullets are matched by glyph (disc vs numbered); this starts a new list, so the listId will differ. Character formatting (bold, links) is left alone, but copying a heading named style resets runs to that style\'s defaults, like format_paragraph. Refused if a target paragraph holds protected text.',
+    inputSchema: { type: 'object', required: ['documentId', 'source', 'target', 'revisionId'],
+      properties: { documentId: DOC, tabId: TAB, source: ADDRESS_BLOCK, target: ADDRESS_BLOCK,
+                    revisionId: REVISION, allowProtected: ALLOWED } },
+    annotations: DESTRUCTIVE },
   { name: 'set_page_setup',
     description: 'Set page margins, page size and orientation. All lengths are points (72 per inch). read_doc shows the current values.',
     inputSchema: { type: 'object', required: ['documentId', 'revisionId'],
@@ -359,6 +389,14 @@ function paragraphBounds(doc, { startIndex, endIndex }) {
   return [from, to]
 }
 
+// The paragraph a character index sits in, or null — copy_paragraph_format's source lookup.
+function paragraphAt(doc, index) {
+  for (const block of paragraphBlocks(doc.body?.content)) {
+    if (block.startIndex <= index && index < block.endIndex) return block
+  }
+  return null
+}
+
 function tableAt(doc, number) {
   const tables = bodyTables(doc)
   if (!Number.isInteger(number) || number < 1 || number > tables.length) {
@@ -396,6 +434,30 @@ function describeExtras(doc) {
       `${JSON.stringify(entry.name)} ${(entry.ranges ?? []).map(range => `[${range.startIndex ?? 0}-${range.endIndex}]`).join(' ')}`).join('\n')
   }
   return out
+}
+
+// Paragraph-level style per paragraph, to diagnose and match formatting the run-level INDEX
+// MAP cannot show. Default fields are omitted, so a paragraph with nothing notable — and a
+// doc of only those — prints nothing rather than a wall of bare indices.
+function paragraphStyleTags(doc, paragraph) {
+  const style = paragraph.paragraphStyle ?? {}
+  const tags = []
+  if (style.namedStyleType && style.namedStyleType !== 'NORMAL_TEXT') tags.push(style.namedStyleType)
+  if (style.lineSpacing != null) tags.push(`line:${rounded(style.lineSpacing)}`)
+  for (const [key, label] of [['spaceAbove', 'above'], ['spaceBelow', 'below'], ['indentStart', 'indent'], ['indentFirstLine', 'indent1']]) {
+    if (style[key]?.magnitude) tags.push(`${label}:${rounded(style[key].magnitude)}`)
+  }
+  if (paragraph.bullet) tags.push(`list:${bulletGlyph(doc, paragraph.bullet)} L${paragraph.bullet.nestingLevel ?? 0} id:${paragraph.bullet.listId}`)
+  return tags
+}
+
+function describeParagraphs(doc) {
+  const lines = []
+  for (const block of paragraphBlocks(doc.body?.content)) {
+    const tags = paragraphStyleTags(doc, block.paragraph)
+    if (tags.length) lines.push(`[${block.startIndex}] ${tags.join(' ')}`)
+  }
+  return lines.length ? '\n\n--- PARAGRAPHS ---\n' + lines.join('\n') : ''
 }
 
 function describeSegments(doc) {
@@ -539,6 +601,7 @@ export function createCallTool({ google, baseline }) {
         const styles = new Map([...paragraphElements(doc.body?.content)].map(pe => [pe.startIndex, pe.textRun?.textStyle]))
         out += `\n\n--- INDEX MAP ---\n` +
           runs.map(r => `[${r.start}-${r.end}] ${JSON.stringify(r.text.slice(0, 80))}${styleTags(styles.get(r.start))}`).join('\n')
+        out += describeParagraphs(doc)
         out += describeExtras(doc)
       }
       return out + describeSegments(doc)
@@ -661,6 +724,33 @@ export function createCallTool({ google, baseline }) {
       ])
       await batch(id, requests, args.revisionId)
       return recordBaseline(id, `Set ${[fields, bullets && `bullets=${bullets}`].filter(Boolean).join(',')} on the paragraph(s) at ${describeRanges(found)}.`, tabId)
+    },
+
+    async copy_paragraph_format(args) {
+      const { source, target } = args
+      if (!source || !target) throw new Error('Give both `source` and `target`, each by `find` or by startIndex/endIndex.')
+      const checked = await preflight('copy_paragraph_format', args)
+      const { id, tabId, doc } = checked
+      const sourceRange = resolveRanges(doc, source)[0]
+      const block = paragraphAt(doc, sourceRange.startIndex)
+      if (!block) throw new Error(`The source at ${sourceRange.startIndex} is not inside a paragraph.`)
+      const { paragraphStyle, fields } = copiedParagraphStyle(block.paragraph.paragraphStyle)
+      // A new list each time — the API cannot reuse the source's listId, and a visual match
+      // is the goal. Bullets first, then the paragraph style, so copied indents win over the
+      // preset's own. createParagraphBullets wipes any existing bullet, deleteParagraphBullets
+      // clears one the source no longer has.
+      const preset = block.paragraph.bullet ? BULLET_PRESETS[bulletGlyph(doc, block.paragraph.bullet)] : null
+      const targets = resolveRanges(doc, target)
+      const requests = []
+      for (const range of targets) {
+        const [from, to] = paragraphBounds(doc, range)
+        guardRange('copy_paragraph_format', checked, from, to, 'copying a paragraph format onto')
+        const located = span(range, tabId)
+        requests.push(preset ? { createParagraphBullets: { range: located, bulletPreset: preset } } : { deleteParagraphBullets: { range: located } })
+        if (fields) requests.push({ updateParagraphStyle: { range: located, paragraphStyle, fields } })
+      }
+      await batch(id, requests, args.revisionId)
+      return recordBaseline(id, `Copied the paragraph format from ${sourceRange.startIndex}-${sourceRange.endIndex} onto ${describeRanges(targets)}.`, tabId)
     },
 
     async set_page_setup(args) {
