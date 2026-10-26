@@ -17,7 +17,7 @@ export async function connect() {
   }))
   const call = async (name, args) => {
     const res = await client.callTool({ name, arguments: args })
-    return { error: !!res.isError, text: res.content[0].text }
+    return { error: !!res.isError, text: res.content[0].text, content: res.content }
   }
   // An edit with the live revisionId, unless the caller pins one to prove a stale id is refused.
   const edit = async (name, args) => {

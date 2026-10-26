@@ -4,6 +4,7 @@ import { driveQuery } from '../tools.mjs'
 const DOCS = 'https://docs.googleapis.com/v1/documents'
 const DRIVE = 'https://www.googleapis.com/drive/v3/files'
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files'
+const EXPORT = 'https://docs.google.com/document/d'
 const GOOGLE_DOC = 'application/vnd.google-apps.document'
 
 export function googleDocs(accessToken) {
@@ -48,6 +49,18 @@ export function googleDocs(accessToken) {
       })
       const body = await call(`${DRIVE}?${params}`)
       return body.files ?? []
+    },
+    // Drive's files.export is refused for docs this app did not create; the Docs download URL is not.
+    async exportDoc(id, format) {
+      const res = await fetch(`${EXPORT}/${encodeURIComponent(id)}/export?format=${format}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      if (res.status === 429) throw new Error('Google is rate-limiting exports. Try again in a moment.')
+      if (!res.ok) throw new Error(`Google answered ${res.status}`)
+      return {
+        bytes: new Uint8Array(await res.arrayBuffer()),
+        mimeType: res.headers.get('Content-Type').split(';')[0],
+        // filename* rather than filename="…", which has the title's spaces and non-ASCII letters stripped.
+        filename: decodeURIComponent(/filename\*=UTF-8''([^;]+)/.exec(res.headers.get('Content-Disposition'))[1]),
+      }
     },
   }
 }

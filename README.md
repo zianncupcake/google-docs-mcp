@@ -88,6 +88,7 @@ Then ask Claude to read any Google Doc URL; `read_doc` returns its text.
 | `create_named_range` / `replace_named_range` / `delete_named_range` | bookmark a span, rewrite it later without indices |
 | `replace_body` | swap the whole body via Drive upload, **keeps the URL** |
 | `find_files` | find Google Docs by name, returns each `documentId` to read or edit (needs `drive.metadata.readonly`) |
+| `export_doc` | download the doc as PDF, Word, ODT, RTF, text, zipped HTML, EPUB or Markdown — same formats as File → Download |
 | `create_doc` | new doc, optionally from HTML |
 | `sync_baseline` | adopt the doc's current text as the baseline; the only way to clear drift |
 

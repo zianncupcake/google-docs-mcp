@@ -7,14 +7,14 @@ import { getAuth } from './auth.mjs'
 import { TOOLS, createCallTool, driveQuery } from './tools.mjs'
 import * as snapshots from './snapshots.mjs'
 
-let _docs, _drive
+let _auth, _docs, _drive
 async function apis() {
   if (!_docs) {
-    const auth = await getAuth()
-    _docs = google.docs({ version: 'v1', auth })
-    _drive = google.drive({ version: 'v3', auth })
+    _auth = await getAuth()
+    _docs = google.docs({ version: 'v1', auth: _auth })
+    _drive = google.drive({ version: 'v3', auth: _auth })
   }
-  return { docs: _docs, drive: _drive }
+  return { auth: _auth, docs: _docs, drive: _drive }
 }
 
 const googleDocs = {
@@ -53,6 +53,19 @@ const googleDocs = {
       spaces: 'drive',
     })
     return res.data.files ?? []
+  },
+  // The same download as worker/google-api.mjs, over fetch: googleapis has no call for the Docs export URL.
+  async exportDoc(id, format) {
+    const { auth } = await apis()
+    const { token } = await auth.getAccessToken()
+    const res = await fetch(`https://docs.google.com/document/d/${encodeURIComponent(id)}/export?format=${format}`, { headers: { Authorization: `Bearer ${token}` } })
+    if (res.status === 429) throw new Error('Google is rate-limiting exports. Try again in a moment.')
+    if (!res.ok) throw new Error(`Google answered ${res.status}`)
+    return {
+      bytes: new Uint8Array(await res.arrayBuffer()),
+      mimeType: res.headers.get('Content-Type').split(';')[0],
+      filename: decodeURIComponent(/filename\*=UTF-8''([^;]+)/.exec(res.headers.get('Content-Disposition'))[1]),
+    }
   },
 }
 
