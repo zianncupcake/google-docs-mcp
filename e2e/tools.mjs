@@ -176,4 +176,9 @@ res = await edit('edit_table', { documentId, table: 1, action: 'delete_table', a
 read = await call('read_doc', { documentId })
 check('delete_table removes it', !res.error && !read.text.includes('--- TABLES ---'), res.text)
 
+// Export
+res = await call('export_doc', { documentId, format: 'pdf' })
+const pdf = res.content[1]?.resource
+check('export_doc returns the doc as a PDF file', !res.error && pdf?.mimeType === 'application/pdf' && Buffer.from(pdf.blob, 'base64').subarray(0, 4).toString() === '%PDF', res.text)
+
 await finish(documentId)

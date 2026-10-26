@@ -1,8 +1,10 @@
 // Every tool, whichever server runs it. The caller supplies what differs between the stdio
 // server and the Worker:
 //   google    getDoc(id), batchUpdate(id, requestBody), createDoc({ title, html, folderId }) -> { id, name },
-//             replaceDocHtml(id, html); a failure throws an Error carrying Google's message
+//             replaceDocHtml(id, html), exportDoc(id, format) -> { bytes, mimeType, filename };
+//             a failure throws an Error carrying Google's message
 //   baseline  load(key) -> { revisionId, text } or null, save(key, { revisionId, text })
+import { Buffer } from 'node:buffer'
 import { protectMode, protectedRanges, overlapping, strictlyInside, textAt, findOccurrences } from './protect.mjs'
 import {
   docRuns, docText, paragraphs, diffParagraphs, describeDrift, hasDrift,
@@ -81,6 +83,7 @@ const PAGE_SIZES = { A4: [595.276, 841.89], LETTER: [612, 792], LEGAL: [612, 100
 const MARGINS = ['marginTop', 'marginBottom', 'marginLeft', 'marginRight']
 const TABLE_ACTIONS = ['insert_row', 'insert_column', 'delete_row', 'delete_column', 'merge_cells', 'unmerge_cells', 'set_column_width', 'delete_table']
 const BREAKS = { page: null, section_next_page: 'NEXT_PAGE', section_continuous: 'CONTINUOUS' }
+const EXPORT_FORMATS = ['pdf', 'docx', 'odt', 'rtf', 'txt', 'zip', 'epub', 'md']
 
 function paragraphStyleFrom({ alignment, namedStyleType, lineSpacing, spaceAbove, spaceBelow, indentStart, indentFirstLine, keepWithNext }) {
   const paragraphStyle = {}
@@ -305,6 +308,12 @@ export const TOOLS = [
         query: { type: 'string', description: 'Substring of the file name to match (case-insensitive).' },
         limit: { type: 'number', description: 'Maximum results, 1-100 (default 20).' },
         mimeType: { type: 'string', description: "Drive mimeType to filter by. Defaults to Google Docs; pass an empty string to match files of any type." } } },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
+  { name: 'export_doc',
+    description: 'Download the whole document as a file, in any format the Docs menu File → Download offers. The file comes back as an embedded resource.',
+    inputSchema: { type: 'object', required: ['documentId', 'format'],
+      properties: { documentId: DOC,
+                    format: { type: 'string', enum: EXPORT_FORMATS, description: 'pdf, docx (Word), odt (OpenDocument), rtf, txt (plain text), zip (Web page (HTML, zipped)), epub or md (Markdown)' } } },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
   { name: 'create_doc',
     description: 'Create a new Google Doc, optionally from HTML. Returns its id and URL.',
@@ -1014,6 +1023,18 @@ export function createCallTool({ google, baseline }) {
       ).join('\n\n')
     },
 
+    async export_doc({ documentId, format }) {
+      if (!EXPORT_FORMATS.includes(format)) throw new Error(`format must be one of ${EXPORT_FORMATS.join(', ')}.`)
+      const id = docId(documentId)
+      const { bytes, mimeType, filename } = await google.exportDoc(id, format)
+      return { content: [
+        { type: 'text', text: `Exported ${filename} (${(bytes.length / 1024).toFixed(1)} KB, ${mimeType})` },
+        { type: 'resource', resource: {
+          uri: `https://docs.google.com/document/d/${id}/export?format=${format}`, mimeType, blob: Buffer.from(bytes).toString('base64'),
+        } },
+      ] }
+    },
+
     async create_doc({ title, html, folderId }) {
       const { id, name } = await google.createDoc({ title, html, folderId })
       return recordBaseline(id, `Created "${name}"\nid: ${id}\nhttps://docs.google.com/document/d/${id}/edit`)
@@ -1038,7 +1059,8 @@ export function createCallTool({ google, baseline }) {
     const fn = handlers[name]
     if (!fn) return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] }
     try {
-      return { content: [{ type: 'text', text: await fn(args ?? {}) }] }
+      const result = await fn(args ?? {})
+      return typeof result === 'string' ? { content: [{ type: 'text', text: result }] } : result
     } catch (e) {
       const detail = e?.response?.data?.error?.message || e.message
       return { isError: true, content: [{ type: 'text', text: `${name} failed: ${detail}` }] }
